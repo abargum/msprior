@@ -43,6 +43,9 @@ flags.DEFINE_float('ema',
 flags.DEFINE_integer("val_every",
                      default=1000,
                      help="validate training every n step.")
+flags.DEFINE_bool("early_stopping",
+                  default=True,
+                  help="enable early stopping on val_cross_entropy.")
 
 
 def add_ext(config: str):
@@ -118,11 +121,14 @@ def main(argv):
         pl.callbacks.ModelCheckpoint(monitor="val_cross_entropy",
                                      filename='best'),
         pl.callbacks.ModelCheckpoint(filename='last'),
-        pl.callbacks.EarlyStopping(
-            "val_cross_entropy",
-            patience=20,
-        )
     ]
+
+    if FLAGS.early_stopping:
+        callbacks.append(
+            pl.callbacks.EarlyStopping(
+                "val_cross_entropy",
+                patience=20,
+            ))
 
     if FLAGS.ema is not None:
         callbacks.append(msprior.utils.EMA(FLAGS.ema))

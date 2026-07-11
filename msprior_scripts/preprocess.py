@@ -104,6 +104,7 @@ class RAVEEncoder(msprior.preprocessor.Preprocessor):
         self.temporal_ratio = self.model.encode_params[-1].item()
         self.from_continuous = "Discrete" not in self.model.encoder.original_name
         self.resolution = FLAGS.resolution
+        self.n_channels = self.model.encode_params[0].item()
 
     def quantize(self, x):
         x = x / 2
@@ -115,6 +116,7 @@ class RAVEEncoder(msprior.preprocessor.Preprocessor):
         audio_arrays = np.stack(audio_arrays, 0)
         audio_batch = torch.from_numpy(audio_arrays).float().reshape(
             audio_arrays.shape[0], 1, -1).to(self.device)
+        audio_batch = audio_batch.expand(-1, self.n_channels, -1)
         z = self.model.encode(audio_batch).permute(0, 2, 1)
         if self.from_continuous:
             z = self.quantize(z)

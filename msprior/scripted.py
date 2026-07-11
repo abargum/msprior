@@ -43,7 +43,7 @@ class ScriptedPrior(nn_tilde.Module):
             ckpt = next(iter(ckpts))
             ckpt = torch.load(ckpt, map_location="cpu")
             if ema_weights and "EMA" in ckpt["callbacks"]:
-                ckpt = ckpt["callbacks"]["EMA"],
+                ckpt = ckpt["callbacks"]["EMA"]
             else:
                 ckpt = ckpt["state_dict"]
             if isinstance(model.decoder.net[0], RWKV):
