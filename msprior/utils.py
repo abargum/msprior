@@ -128,7 +128,11 @@ def load_audio_chunk(
         path: str,
         n_signal: int,
         sr: int,
-        silenceremove: Optional[int] = None) -> Iterable[np.ndarray]:
+        silenceremove: Optional[int] = None,
+        hop_signal: Optional[int] = None) -> Iterable[np.ndarray]:
+    # hop_signal < n_signal yields overlapping chunks (more distinct crops
+    # from the same audio); defaults to n_signal, i.e. no overlap.
+    hop_signal = hop_signal or n_signal
 
     ffmpeg_cmd = [
         'ffmpeg',
@@ -151,11 +155,14 @@ def load_audio_chunk(
         ffmpeg_cmd,
         stdout=subprocess.PIPE,
     )
-    chunk = process.stdout.read(n_signal * 2)
-    while len(chunk) == n_signal * 2:
-        chunk = np.frombuffer(chunk, np.int16).astype(np.float32) / 2**15
+    buffer = process.stdout.read(n_signal * 2)
+    while len(buffer) == n_signal * 2:
+        chunk = np.frombuffer(buffer, np.int16).astype(np.float32) / 2**15
         yield chunk, path
-        chunk = process.stdout.read(n_signal * 2)
+        new_bytes = process.stdout.read(hop_signal * 2)
+        if len(new_bytes) < hop_signal * 2:
+            break
+        buffer = buffer[hop_signal * 2:] + new_bytes
 
     process.stdout.close()
 

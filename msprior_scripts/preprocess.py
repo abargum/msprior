@@ -66,6 +66,11 @@ flags.DEFINE_integer(
     'resolution',
     default=64,
     help="Discretization resolution to use when using continuous rave models.")
+flags.DEFINE_float(
+    'overlap',
+    default=0.0,
+    help="Fraction of chunk length to overlap between consecutive chunks "
+    "(e.g. 0.5 for 50%% overlap). 0 disables overlap (original behavior).")
 
 
 def process_batch(
@@ -158,11 +163,18 @@ def main(argv):
     n_signal = 2**int(math.ceil(math.log2(n_signal)))
     print(f'Using chunks of {n_signal/sampling_rate:.2f}s')
 
+    assert 0 <= FLAGS.overlap < 1, "--overlap must be in [0, 1)"
+    hop_signal = max(1, int(n_signal * (1 - FLAGS.overlap)))
+    if FLAGS.overlap:
+        print(f'Using hop of {hop_signal/sampling_rate:.2f}s '
+              f'({FLAGS.overlap:.0%} overlap)')
+
     chunk_load = partial(
         msprior.utils.load_audio_chunk,
         n_signal=n_signal,
         sr=sampling_rate,
         silenceremove=FLAGS.silence_threshold,
+        hop_signal=hop_signal,
     )
 
     env = lmdb.open(
