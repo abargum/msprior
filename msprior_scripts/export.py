@@ -19,6 +19,7 @@ def main(argv):
         from_continuous=FLAGS.continuous,
         vae_path=FLAGS.vae_path,
         ema_weights=FLAGS.ema_weights,
+        ckpt=FLAGS.ckpt,
     )
     model.apply_full_reset()
     model_name = os.path.basename(os.path.normpath(FLAGS.run)) + '.ts'
@@ -34,6 +35,12 @@ flags.DEFINE_integer('batch_size', default=1, help='Maximum batch size')
 flags.DEFINE_bool('ema_weights',
                   default=False,
                   help='Use ema weights if available')
+flags.DEFINE_string(
+    'ckpt',
+    default='best',
+    help='Which checkpoint to export: "best", "last", or an explicit '
+    'filename/path under --run.',
+)
 
 flags.DEFINE_integer(
     'temporal_ratio',

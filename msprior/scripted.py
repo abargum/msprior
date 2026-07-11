@@ -22,6 +22,7 @@ class ScriptedPrior(nn_tilde.Module):
         vae_path: Optional[str] = None,
         initial_listen: bool = True,
         ema_weights: bool = False,
+        ckpt: str = "best",
     ) -> None:
         super().__init__()
         print("streaming mode is set to", cc.USE_BUFFER_CONV)
@@ -37,20 +38,33 @@ class ScriptedPrior(nn_tilde.Module):
         model = Prior()
 
         if run is not None:
-            ckpts = pathlib.Path(run).rglob("*.ckpt")
-            ckpts = map(str, ckpts)
-            ckpts = sorted(ckpts, key=lambda x: "last" in x, reverse=True)
-            ckpt = next(iter(ckpts))
-            ckpt = torch.load(ckpt, map_location="cpu")
-            if ema_weights and "EMA" in ckpt["callbacks"]:
-                ckpt = ckpt["callbacks"]["EMA"]
+            ckpt_path = pathlib.Path(ckpt)
+            if not ckpt_path.is_file():
+                # `ckpt` is a selector ("best" / "last") rather than a path:
+                # match by filename prefix and take the most recently
+                # written one, since Lightning may version-bump colliding
+                # filenames (e.g. "last.ckpt" -> "last-v1.ckpt").
+                candidates = sorted(
+                    pathlib.Path(run).rglob(f"{ckpt}*.ckpt"),
+                    key=lambda p: p.stat().st_mtime,
+                    reverse=True,
+                )
+                if not candidates:
+                    raise FileNotFoundError(
+                        f'No checkpoint matching "{ckpt}*.ckpt" found under {run}'
+                    )
+                ckpt_path = candidates[0]
+            print(f"loading checkpoint {ckpt_path}")
+            state_dict = torch.load(ckpt_path, map_location="cpu")
+            if ema_weights and "EMA" in state_dict["callbacks"]:
+                state_dict = state_dict["callbacks"]["EMA"]
             else:
-                ckpt = ckpt["state_dict"]
+                state_dict = state_dict["state_dict"]
             if isinstance(model.decoder.net[0], RWKV):
-                for k, v in ckpt.items():
+                for k, v in state_dict.items():
                     if ".time" in k:
-                        ckpt[k] = v.reshape(-1)
-            model.load_state_dict(ckpt, strict=False)
+                        state_dict[k] = v.reshape(-1)
+            model.load_state_dict(state_dict, strict=False)
 
         model.eval()
 
