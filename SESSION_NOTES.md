@@ -43,6 +43,14 @@ Train an `msprior` prior model on top of the stereo RAVE model in
 4. Added a thin **`train.py`** wrapper at repo root (not part of upstream)
    so `python train.py --config ...` works from the repo root without
    installing the package first.
+5. **`msprior/scripted.py` + `msprior_scripts/export.py`** — added a
+   `--ckpt` flag to `msprior export` (default `"best"`, also accepts
+   `"last"` or an explicit path). Replaces the old implicit selection
+   (`rglob("*.ckpt")` sorted to prefer any filename containing `"last"`),
+   which silently exported end-of-training/overfit weights by default and
+   broke outright once Lightning version-bumped a colliding filename to
+   `last-v1.ckpt` (selection is now by filename *prefix*, resolved to the
+   most recently written match).
 
 ## Preprocessing
 
@@ -114,40 +122,62 @@ Pulled scalars from
   ~400-500 chunks (with `val_size=60` held out) is thin data for a
   4-layer/128-dim model.
 
-### Checkpoint export gotcha
+### Checkpoint export (fixed)
 
-`ScriptedPrior` (`msprior/scripted.py`) auto-selects a checkpoint via
-`pathlib.Path(run).rglob("*.ckpt")`, sorted so filenames containing `"last"`
-are preferred over `"best"` — **regardless of the `--ema_weights` flag**.
-So a plain `msprior export --run ... --ema_weights` pulls EMA weights
-anchored near the *end* of training (already overfit), not the
-best-validation checkpoint. To export from `best.ckpt` instead, temporarily
-move `last.ckpt` out of the checkpoints directory, run export, then restore
-it (both checkpoints are gitignored, so this is safe/local-only).
+Export now takes an explicit `--ckpt best|last|<path>` flag (default
+`best`) — see bug fix #5 above. No more manual move-aside-and-restore
+needed; e.g.:
 
-Two exports currently exist locally (both gitignored, not in this repo):
-- `runs/prior_rmc_full_stereo_v1/prior_rmc_full_stereo_v1_bestckpt.ts` —
-  from `best.ckpt` (val_cross_entropy 3.87 @ step ~1,889). **This is the one
-  to listen to/evaluate first.**
-- The original last-ckpt export was overwritten when the best-ckpt one was
-  produced (export always writes to the same filename); it can be
-  regenerated from `last.ckpt` if needed for comparison since the
-  checkpoint itself is untouched.
+```
+msprior export --run runs/<name> --temporal_ratio 2048 --continuous \
+  --ema_weights --ckpt best
+```
+
+## Follow-up runs: early stopping + capacity comparison (2026-07-11)
+
+Compared against [devstermarts/Notebooks](https://github.com/devstermarts/Notebooks)
+(MSPrior training templates) and its `devstermarts/msprior` fork. Their
+recipe always keeps `EarlyStopping(patience=20)` on `val_cross_entropy`
+active (they only raise the epoch *ceiling*, via a `--epochs` flag, not
+remove the stopping criterion) and trains with the `recurrent.gin`
+*default* capacity (`MODEL_DIM=512`, `NUM_LAYERS=8`, `DROPOUT_RATE=0.01`)
+rather than a scaled-down model. Ran two more trainings on the same
+`rmc_preprocessed` dataset to test both changes in isolation:
+
+- **v2** (`prior_rmc_full_stereo_v2_smallmodel_earlystop`): same
+  hyperparameters as v1, early stopping back on. Best val_cross_entropy
+  3.870 @ step 1,979 — matches v1's best (3.867) almost exactly, but
+  training correctly stopped at step 2,879 instead of running to 14,984.
+  **This validates the early-stopping fix**: same quality ceiling, no
+  overfit collapse, no risk of exporting from the wrong end of training.
+- **v3** (`prior_rmc_full_stereo_v3_defaultcapacity_earlystop`): dropped
+  the `MODEL_DIM`/`NUM_LAYERS`/`DROPOUT_RATE` overrides to use
+  `recurrent.gin` defaults, early stopping on. Best val_cross_entropy
+  **3.968 @ step 854** — worse than v1/v2, and reached (then overfit) much
+  faster: train `cross_entropy` collapsed to 1.6 while val loss never beat
+  3.97. **The bigger/less-regularized model did not help here** — with
+  only ~400 training chunks, more capacity mainly means faster
+  memorization, not better generalization.
+- All three runs plateau around val_cross_entropy 3.87–3.97, only
+  modestly below the random baseline (ln(64) ≈ 4.16). This ceiling looks
+  like a **data-quantity limit**, not a checkpoint-timing or architecture
+  problem.
+
+Best export to date:
+`runs/prior_rmc_full_stereo_v2_smallmodel_earlystop/prior_rmc_full_stereo_v2_bestckpt.ts`
+(from v2's `best.ckpt`, via `--ckpt best`).
 
 ## Status / next steps
 
-- [ ] Listen to `prior_rmc_full_stereo_v1_bestckpt.ts` and judge quality.
-- [ ] If still weak: the likely lever is more/longer source audio rather
-      than further checkpoint archaeology on this run — dataset size looks
-      like the binding constraint, not just where training stopped.
-- [ ] Consider re-enabling `--early_stopping` (now `true` by default again
-      after the flag addition) for the next run so training doesn't run
-      1000 epochs past the best point.
-- [ ] If retrying with the same data, current hyperparameters
-      (`MODEL_DIM=128`, `NUM_LAYERS=4`, `DROPOUT_RATE=0.15`) are already
-      fairly conservative for a small dataset; a smaller model or stronger
-      weight decay could be tried if overfitting persists even with early
-      stopping.
+- [ ] Listen to `prior_rmc_full_stereo_v2_bestckpt.ts` and judge quality —
+      this is the current best candidate (early stopping fixed, matches
+      the best quality seen across all three runs).
+- [ ] If still weak: the real lever is more/longer source audio, not
+      further hyperparameter search on this same ~400-chunk dataset —
+      neither early stopping nor model capacity moved the quality ceiling
+      in these experiments.
+- [ ] `--early_stopping` now defaults to `true`; no need to pass it
+      explicitly unless deliberately disabling it for a diagnostic run.
 
 ## Repro/environment cheatsheet
 
