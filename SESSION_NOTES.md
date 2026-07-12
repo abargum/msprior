@@ -300,26 +300,63 @@ Kept squeezing the two levers that were still paying off, still at
   val_acc_top_10 29.3% → 36.3% — real, meaningful, but flattening out on
   this fixed ~3 hours of source audio.
 - Exported: `runs/prior_rmc_full_stereo_v10_overlap85_seqlen128/prior_rmc_full_stereo_v10_overlap85_seqlen128.ts`
+  (via `--ckpt best`) — superseded by v11 below.
+
+## Follow-up run: ALiBi transformer vs GRU architecture (2026-07-12)
+
+All runs so far used `--config recurrent`, which *includes*
+`decoder_only.gin` but overrides `attention.Decoder.layer_factory` from
+`@attention.TransformerLayer` (ALiBi multi-head attention) to
+`@attention.GRULayer` — i.e. every run above was a GRU-based decoder, not
+the transformer. Never actually tested `--config decoder_only` (the plain
+ALiBi transformer) until asked directly.
+
+- **v11** (`prior_rmc_full_stereo_v11_alibi_overlap85_seqlen128`):
+  `--config decoder_only` instead of `recurrent`, otherwise identical to
+  v10 (same `overlap85` data, `MODEL_DIM=128`, `NUM_LAYERS=4`,
+  `DROPOUT_RATE=0.15`, `SEQ_LEN=128`) — architecture is the only variable.
+
+| Run | Best val_cross_entropy | Best val_acc_top_1 | Best val_acc_top_10 | Stopped @ |
+|---|---|---|---|---|
+| v10 (GRU/recurrent) | 3.696 | 3.84% | 36.27% | 11,361 |
+| **v11 (ALiBi transformer)** | **3.684** | **3.88%** | **36.97%** | **12,979** |
+
+- The transformer wins on every metric, and trained longer before early
+  stopping — a real, if modest, additional gain on top of the
+  overlap/`SEQ_LEN` improvements, and free (no extra data needed).
+- Exported `.ts` is larger (11.5MB vs v10's 5.7MB — more parameters than
+  the matched-hyperparameter GRU at the same `MODEL_DIM`/`NUM_LAYERS`),
+  still small enough to be a non-issue for nn~ use.
+- Exported: `runs/prior_rmc_full_stereo_v11_alibi_overlap85_seqlen128/prior_rmc_full_stereo_v11_alibi_overlap85_seqlen128.ts`
   (via `--ckpt best`) — **current best real-world candidate**, full
   16-quantizer output, realtime-nn~ compatible.
 
 ## Status / next steps
 
-- [ ] Listen to v10 — current best candidate.
-- [ ] **The overlap/SEQ_LEN well is close to dry.** Gains per step are
-      shrinking fast (v8→v10 barely moved the needle vs v6→v8). Squeezing
-      further (e.g. `--overlap 0.9`+) is unlikely to be worth another
-      round — diminishing returns on a fixed ~3 hours of source audio.
+- [ ] Listen to v11 — current best candidate (ALiBi transformer,
+      overlap85 + SEQ_LEN=128 data).
+- [ ] **`--config decoder_only` (ALiBi transformer) beat `--config recurrent`
+      (GRU) at matched hyperparameters — use decoder_only as the default
+      going forward**, not recurrent. This session used recurrent
+      throughout v1-v10 without deliberately choosing it over the
+      transformer; that was an oversight, not a considered decision.
+- [ ] **The overlap/SEQ_LEN well is close to dry.** Gains per step there
+      were shrinking fast even before the architecture swap (v8→v10 barely
+      moved the needle vs v6→v8). Squeezing further (e.g. `--overlap 0.9`+)
+      is unlikely to be worth another round on this fixed ~3 hours of audio.
 - [ ] **Real next lever is more source audio**, or pretraining the prior on
       a larger, stylistically compatible corpus (processed through this
       same RAVE model) and fine-tuning (`--ckpt <path>`) on the RMC-specific
       data — standard fix for "good encoder, too little data for the
       downstream model." This is now the highest-expected-value option
       left, more so than further hyperparameter search on the same audio.
-- [ ] Model capacity conclusion confirmed twice (v3 and v7): don't reach
-      for `MODEL_DIM=512`/`NUM_LAYERS=8` defaults on this data scale — they
-      consistently overfit faster and land worse than the smaller
-      `MODEL_DIM=128`/`NUM_LAYERS=4` config.
+- [ ] Model capacity conclusion confirmed twice (v3 and v7, both under
+      `--config recurrent`): don't reach for `MODEL_DIM=512`/`NUM_LAYERS=8`
+      defaults on this data scale — they overfit faster and land worse
+      than the smaller `MODEL_DIM=128`/`NUM_LAYERS=4` config. Not yet
+      re-verified under `--config decoder_only`, but no reason to expect
+      the capacity/data-size tradeoff to reverse with the architecture
+      swap alone.
 - [ ] `--early_stopping` now defaults to `true`; no need to pass it
       explicitly unless deliberately disabling it for a diagnostic run.
 
