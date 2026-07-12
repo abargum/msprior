@@ -269,30 +269,56 @@ throughout:
   2.79) and lands worse on validation than every small-model run. Model
   capacity is not the lever here, at least not up to ~600-1200 chunks.
 - Exported: `runs/prior_rmc_full_stereo_v6_overlap75_smallmodel/prior_rmc_full_stereo_v6_overlap75_smallmodel.ts`
-  (via `--ckpt best`) — **current best real-world candidate.**
+  (via `--ckpt best`) — superseded by v8/v10 below.
+
+## Follow-up runs: pushing overlap further + SEQ_LEN (2026-07-12)
+
+Kept squeezing the two levers that were still paying off, still at
+`NUM_QUANTIZERS=16`:
+
+- **v8** (`prior_rmc_full_stereo_v8_overlap85_smallmodel`): `--overlap 0.85`
+  → `data/rmc_preprocessed_overlap85`, 1,206 → 1,998 chunks.
+- **v9** (`prior_rmc_full_stereo_v9_overlap75_seqlen128`): same `overlap75`
+  dataset as v6, but `SEQ_LEN=128` instead of 256 (more distinct crops per
+  chunk per epoch, less long-range context to learn at once).
+- **v10** (`prior_rmc_full_stereo_v10_overlap85_seqlen128`): stacks both —
+  `overlap85` dataset + `SEQ_LEN=128`.
+
+| Run | Best val_cross_entropy | Best val_acc_top_1 | Best val_acc_top_10 | Stopped @ |
+|---|---|---|---|---|
+| v6 (overlap75, SEQ_LEN=256) | 3.753 | 3.56% | 34.02% | 7,687 |
+| v8 (overlap85, SEQ_LEN=256) | 3.705 | 3.74% | 35.94% | 11,361 |
+| v9 (overlap75, SEQ_LEN=128) | 3.726 | 3.69% | 35.13% | 10,367 |
+| **v10 (overlap85, SEQ_LEN=128)** | **3.696** | **3.84%** | **36.27%** | 11,361 |
+
+- v8 and v9 are independent, additive wins (higher overlap and shorter
+  `SEQ_LEN` each help on their own). Stacking them (v10) gives the best
+  result yet, but only a small increment over v8 alone (3.705 → 3.696) —
+  **visibly diminishing returns** compared to the earlier 0%→50%→75%
+  overlap steps (3.870 → 3.805 → 3.753).
+- Overall progress this session: val_cross_entropy 3.870 → 3.696,
+  val_acc_top_10 29.3% → 36.3% — real, meaningful, but flattening out on
+  this fixed ~3 hours of source audio.
+- Exported: `runs/prior_rmc_full_stereo_v10_overlap85_seqlen128/prior_rmc_full_stereo_v10_overlap85_seqlen128.ts`
+  (via `--ckpt best`) — **current best real-world candidate**, full
+  16-quantizer output, realtime-nn~ compatible.
 
 ## Status / next steps
 
-- [ ] Listen to v6 — current best candidate, full 16-quantizer output,
-      compatible with the realtime nn~ decoder.
-- [ ] Overlap has now been pushed 0% → 50% → 75% with consistent gains at
-      each step and no sign of saturating yet (v6 still trained longer
-      before stopping than v4). Worth trying even higher overlap
-      (e.g. 0.85-0.9) as a cheap next step before reaching for more source
-      audio.
-- [ ] Biggest remaining lever is still **more source audio** — overlap
-      squeezes more crops out of a fixed ~3 hours, but is fundamentally
-      reusing the same underlying information.
-- [ ] Not yet tried: pretraining the prior on a larger, stylistically
-      compatible corpus (processed through this same RAVE model), then
-      fine-tuning (`--ckpt <path>`) on the RMC-specific data — standard
-      fix for "good encoder, too little data for the downstream model,"
-      likely higher-impact than further hyperparameter search alone.
-- [ ] Could also try a shorter `SEQ_LEN` (more distinct crops per chunk
-      per epoch) — not yet tested in combination with any overlap dataset.
-- [ ] Model capacity conclusion now confirmed twice (v3 and v7): don't
-      reach for `MODEL_DIM=512`/`NUM_LAYERS=8` defaults on this data scale
-      — they consistently overfit faster and land worse than the smaller
+- [ ] Listen to v10 — current best candidate.
+- [ ] **The overlap/SEQ_LEN well is close to dry.** Gains per step are
+      shrinking fast (v8→v10 barely moved the needle vs v6→v8). Squeezing
+      further (e.g. `--overlap 0.9`+) is unlikely to be worth another
+      round — diminishing returns on a fixed ~3 hours of source audio.
+- [ ] **Real next lever is more source audio**, or pretraining the prior on
+      a larger, stylistically compatible corpus (processed through this
+      same RAVE model) and fine-tuning (`--ckpt <path>`) on the RMC-specific
+      data — standard fix for "good encoder, too little data for the
+      downstream model." This is now the highest-expected-value option
+      left, more so than further hyperparameter search on the same audio.
+- [ ] Model capacity conclusion confirmed twice (v3 and v7): don't reach
+      for `MODEL_DIM=512`/`NUM_LAYERS=8` defaults on this data scale — they
+      consistently overfit faster and land worse than the smaller
       `MODEL_DIM=128`/`NUM_LAYERS=4` config.
 - [ ] `--early_stopping` now defaults to `true`; no need to pass it
       explicitly unless deliberately disabling it for a diagnostic run.
